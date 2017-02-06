@@ -8,3 +8,7 @@ A complete rewrite and reconception for Drupal 8 is being considered.
 
 - Entity API
 - The pool module, which can be found at my github profile.
+
+# Known problems
+
+The module contains partially hard-coded, untranslatable German texts.
