@@ -1,0 +1,10 @@
+name = Customer Recipients
+description = Let users write messages to customer accounts.
+package = User Messages
+
+dependencies[] = user_message
+dependencies[] = entityreference
+dependencies[] = customer
+
+core = 7.x
+version = "7.x-1.x-dev"

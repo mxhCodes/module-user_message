@@ -1,0 +1,314 @@
+<?php
+
+/**
+ * @file
+ * recipient_customer module file.
+ */
+
+/**
+ * Implements hook_user_message_build_received_query().
+ * 
+ * Get received messages by the recipient_customer field.
+ */ 
+function recipient_customer_user_message_build_received_query($account, $query) {
+  // @todo Callback to retrieve all customer accounts of the current user.
+  // @todo Dont forget recipient_customer_options field.
+  $customer_accounts = FALSE;
+  if (!$customer_accounts) {
+    return;
+  }
+  
+  $conditions = $query->conditions();
+  unset($conditions['#conjunction']);
+  $condition = NULL;
+  foreach ($conditions as $item) {
+    if ($item['field'] instanceof DatabaseCondition) {
+      $condition = $item['field'];
+    }
+  }
+  if (!isset($condition)) {
+    $condition = db_or();
+    $query->condition($condition);
+  }
+  $customer_condition = array();
+  // @todo Fetch all customer accounts of the current user and add them to the condition.
+  if (!empty($customer_condition)) {
+    $condition->where(implode(' OR ', $customer_condition));
+  }
+}
+
+/**
+ * Implements hook_user_message_proper_received_item() .
+ */
+function recipient_customer_user_message_proper_received_item($m, $account, $item) {
+  if ($item) {
+    // Already got one, so dont care about it.
+    return $item;
+  }
+  // @todo Create proper received item by owner of customer accounts.
+  return $item;
+}
+
+/**
+ * Implements hook_user_message_recipients().
+ */
+function recipient_customer_user_message_recipients($m) {
+  $group = recipient_customer_group_options($m);
+  $group += recipient_customer_group_reference($m);
+  
+  return $group ? $group : NULL;
+}
+
+/**
+ * Implements hook_user_message_read(). 
+ */
+function recipient_customer_user_message_read($m, $entity, $entity_type) {
+  // @todo
+  // Make sure a record is created for both the current user AND customer who is
+  // reading the user_message object.
+}
+
+/**
+ * Get recipients group by recipient_customer_reference field.
+ * 
+ * @param $m
+ *  The user_message object.
+ * 
+ * @return
+ *  An array representing the recipients group.
+ * 
+ * @see hook_user_message_recipients().
+ */
+function recipient_customer_group_reference($m) {
+  $items = field_get_items('user_message', $m, 'recipient_customer_reference');
+  if (!$items) {
+    // No recipient_customer_reference field created for this type,
+    // or no customer account has been added as recipient.
+    return array();
+  }
+  $customers =  array();
+  foreach ($items as $item) {
+    $customer = customer_load($item['target_id']);
+    if (!$customer) {
+      continue;
+    }
+    else {
+      $customers[$customer->customer_id] = $customer;
+    }
+  }
+  if (empty($customers)) {
+    // It seems the referenced customers dont exist anymore.
+    return array();
+  }
+  $group = array(
+    'recipient_customer_reference' => array(
+      'group label' => 'Kunden',
+      'items' => array(),
+    ),
+  );
+  foreach ($customers as $customer) {
+    $mails = array();
+    if ($mail_items = field_get_items('customer', $customer, 'email')) {
+      foreach ($mail_items as $item) {
+        $mails[] = $item['email'];
+      }
+    }
+    $id = $customer->customer_id;
+    $group['recipient_customer_reference']['items'][$id] = array(
+      'label' => $customer->name,
+      'emails' => $mails,
+      'entity_id' => $id,
+      'entity_type' => 'customer',
+    );
+  }
+  return $group;
+}
+
+/**
+ * Get recipients group by recipient_customer_options field.
+ * 
+ * @param $m
+ *  The user_message object.
+ * 
+ * @return
+ *  An array representing the recipients group.
+ * 
+ * @see hook_user_message_recipients().
+ */
+function recipient_customer_group_options($m) {
+  $items = field_get_items('user_message', $m, 'recipient_customer_options');
+  if (!$items) {
+    // No recipient_customer_reference field created for this type,
+    // or no customer account has been added as recipient.
+    return array();
+  }
+  $group = array(
+    'recipient_customer_options' => array(
+      'group label' => 'Kunden mit Status',
+      'items' => array(),
+    ),
+  );
+  $options = recipient_customer_options_available();
+  foreach ($items as $item) {
+    $delta = $item['value'];
+    $group['recipient_customer_options']['items'][$delta] = array(
+      'label' => $options[$delta],
+      'emails' => recipient_customer_options_mails($delta),
+    );
+  }
+  return $group;
+}
+
+/**
+ * Allowed values callback for the recipient_customer_options field. 
+ */
+function recipient_customer_options_allowed($field, $instance, $entity_type, $entity, $cacheable) {
+  $allowed = recipient_customer_options_available();
+  return $allowed;
+}
+
+/**
+ * Get all available customer options. 
+ */
+function recipient_customer_options_available() {
+  return array(
+    'any' => 'Beliebig (Jeder Kunde erhält diese Nachricht)',
+  );
+}
+
+/**
+ * Get all email addresses for a given option key.
+ * 
+ * @param $option
+ *  The option key, e.g. 'any'.
+ * 
+ * @return
+ *  An array of all found mail addresses.
+ */
+function recipient_customer_options_mails($option) {
+  $query = db_select('field_data_email', 'email');
+  $query->fields('email', array('email_email'));
+  $query->where('email.entity_type = \'customer\'');
+  $query->where('email.email_email IS NOT NULL AND email.email_email <> \'\'');
+  if ($option != 'any') {
+    // @todo
+    // - Filter customer emails by customer status / option
+    // - $query->innerJoin();
+  }
+  $mails = $query->execute()->fetchCol();
+  
+  return $mails;
+}
+
+/**
+ * Add the recipient_customer_options field, as needed. 
+ */
+function recipient_customer_add_options_field($type, $label = 'An alle Kunden mit Status') {
+  field_cache_clear();
+  $field = field_info_field('recipient_customer_options');
+  $instance = field_info_instance('user_message', 'recipient_customer_options', $type);
+  if (empty($field)) {
+    $field = array(
+      'cardinality' => -1,
+      'entity_types' => array('user_message'),
+      'field_name' => 'recipient_customer_options',
+      'settings' => array(
+        'allowed_values' => array(),
+        'allowed_values_function' => 'recipient_customer_options_allowed',
+      ),
+      'translatable' => 0,
+      'type' => 'list_text',
+    );
+    $field = field_create_field($field);
+  }
+  if (empty($instance)) {
+    $instance = array(
+      'bundle' => $type,
+      'display' => array(
+        'default' => array(
+            'label' => 'hidden',
+            'type' => 'hidden',
+        ),
+        'compact' => array(
+          'label' => 'hidden',
+          'type' => 'hidden',
+        ),
+      ),
+      'entity_type' => 'user_message',
+      'field_name' => 'recipient_customer_options',
+      'label' => $label,
+      'required' => FALSE,
+      'widget' => array(
+        'settings' => array(),
+        'type' => 'options_buttons',
+        'weight' => 30,
+      ),
+    );
+    $instance = field_create_instance($instance);
+  }
+  return $instance;
+}
+
+/**
+ * Add the recipient_customer_reference field, as needed.
+ */
+function recipient_customer_add_reference_field($type, $label = 'An Kunden') {
+  field_cache_clear();
+  $field = field_info_field('recipient_customer_reference');
+  $instance = field_info_instance('user_message', 'recipient_customer_reference', $type);
+  if (empty($field)) {
+    $field = array(
+      'type' => 'entityreference',
+      'cardinality' => -1,
+      'entity_types' => array('user_message'),
+      'field_name' => 'recipient_customer_reference',
+      'settings' => array(
+        'handler' => 'base',
+        'handler_settings' => array(
+          'behaviors' => array(
+            'views-select-list' => array(
+              'status' => 0,
+            ),
+          ),
+          'sort' => array(
+            'direction' => 'ASC',
+            'property' => 'name',
+            'type' => 'property',
+          ),
+          'target_bundles' => array(),
+        ),
+        'target_type' => 'customer',
+      ),
+    );
+    $field = field_create_field($field);
+  }
+  if (empty($instance)) {
+    $instance = array(
+      'bundle' => $type,
+      'display' => array(
+        'default' => array(
+            'label' => 'hidden',
+            'type' => 'hidden',
+        ),
+        'compact' => array(
+          'label' => 'hidden',
+          'type' => 'hidden',
+        ),
+      ),
+      'entity_type' => 'user_message',
+      'field_name' => 'recipient_customer_reference',
+      'label' => $label,
+      'required' => FALSE,
+      'widget' => array(
+        'settings' => array(
+          'match_operator' => 'CONTAINS',
+          'size' => 60,
+        ),
+        'type' => 'entityreference_autocomplete',
+        'weight' => 40,
+      ),
+    );
+    $instance = field_create_instance($instance);
+  }
+  return $instance;
+}

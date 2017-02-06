@@ -1,0 +1,35 @@
+<?php
+
+/**
+ * @file
+ * Install, update and uninstall functions for the recipient_customer module.
+ */
+
+/**
+ * Implements hook_install().
+ */
+function recipient_customer_install() {
+  module_load_include('module', 'recipient_customer', 'recipient_customer');
+  $info = entity_get_info('user_message');
+  if (isset($info['bundles']['common'])) {
+    recipient_customer_add_options_field('common');
+    recipient_customer_add_reference_field('common');
+  }
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function recipient_customer_uninstall() {
+  $info = entity_get_info('user_message');
+  foreach ($info['bundles'] as $type => $value) {
+    $instance = field_info_instance('user_message', 'recipient_customer_options', $type);
+    if (!empty($instance)) {
+      field_delete_instance($instance);
+    }
+    $instance = field_info_instance('user_message', 'recipient_customer_reference', $type);
+    if (!empty($instance)) {
+      field_delete_instance($instance);
+    }
+  }
+}
