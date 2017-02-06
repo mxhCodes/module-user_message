@@ -1,0 +1,30 @@
+<?php
+
+/**
+ * @file
+ * Install, update and uninstall functions for the recipient_role module.
+ */
+
+/**
+ * Implements hook_install().
+ */
+function recipient_role_install() {
+  module_load_include('module', 'recipient_role', 'recipient_role');
+  $info = entity_get_info('user_message');
+  if (isset($info['bundles']['common'])) {
+    recipient_role_add_field('common');
+  }
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function recipient_role_uninstall() {
+  $info = entity_get_info('user_message');
+  foreach ($info['bundles'] as $type => $value) {
+    $instance = field_info_instance('user_message', 'recipient_role', $type);
+    if (!empty($instance)) {
+      field_delete_instance($instance);
+    }
+  }
+}

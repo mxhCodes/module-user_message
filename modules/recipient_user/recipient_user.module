@@ -1,0 +1,109 @@
+<?php
+
+/**
+ * @file
+ * recipient_user module file.
+ */
+
+/**
+ * Implements hook_user_message_recipients().
+ */
+function recipient_user_user_message_recipients($m) {
+  $items = field_get_items('user_message', $m, 'recipient_user');
+  if (!$items) {
+    // No recipient_user field created for this type,
+    // or no user has been added as recipient.
+    return;
+  }
+  $group = array(
+    'recipient_user' => array(
+      'group label' => 'Benutzer',
+      'items' => array(),
+    ),
+  );
+  foreach ($items as $item) {
+    $account = user_load($item['target_id']);
+    $group['recipient_user']['items'][$account->uid] = array(
+      'label' => format_username($account),
+      'emails' => array($account->mail),
+      'entity_id' => $account->uid,
+      'entity_type' => 'user',
+    );
+  }
+  return $group;
+}
+
+/**
+ * Implements hook_user_message_create_answer(). 
+ */
+function recipient_user_user_message_create_answer($m, $answer) {
+  $info = field_info_instances('user_message', $answer->type);
+  if (isset($info['recipient_user'])) {
+    // @todo Proper language handling.
+    $answer->recipient_user[LANGUAGE_NONE][]['target_id'] = $m->created_by;
+  }
+}
+
+/**
+ * Add the recipient_user field, as needed.
+ */
+function recipient_user_add_field($type, $label = 'An Benutzer') {
+  field_cache_clear();
+  $field = field_info_field('recipient_user');
+  $instance = field_info_instance('user_message', 'recipient_user', $type);
+  if (empty($field)) {
+    $field = array(
+      'type' => 'entityreference',
+      'cardinality' => -1,
+      'entity_types' => array('user_message'),
+      'field_name' => 'recipient_user',
+      'settings' => array(
+        'handler' => 'base',
+        'handler_settings' => array(
+          'behaviors' => array(
+            'views-select-list' => array(
+              'status' => 0,
+            ),
+          ),
+          'sort' => array(
+            'direction' => 'ASC',
+            'property' => 'name',
+            'type' => 'property',
+          ),
+          'target_bundles' => array(),
+        ),
+        'target_type' => 'user',
+      ),
+    );
+    $field = field_create_field($field);
+  }
+  if (empty($instance)) {
+    $instance = array(
+      'bundle' => $type,
+      'display' => array(
+        'default' => array(
+            'label' => 'hidden',
+            'type' => 'hidden',
+        ),
+        'compact' => array(
+          'label' => 'hidden',
+          'type' => 'hidden',
+        ),
+      ),
+      'entity_type' => 'user_message',
+      'field_name' => 'recipient_user',
+      'label' => $label,
+      'required' => FALSE,
+      'widget' => array(
+        'settings' => array(
+          'match_operator' => 'CONTAINS',
+          'size' => 60,
+        ),
+        'type' => 'entityreference_autocomplete',
+        'weight' => 20,
+      ),
+    );
+    $instance = field_create_instance($instance);
+  }
+  return $instance;
+}

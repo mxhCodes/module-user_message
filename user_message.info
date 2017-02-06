@@ -1,0 +1,18 @@
+name = User Message
+description = Let users write messages to each other.
+package = User Messages
+
+; Contrib
+dependencies[] = user
+dependencies[] = entity
+
+; Custom
+dependencies[] = pool
+
+stylesheets[all][] = user_message.css
+
+files[] = user_message.inc
+files[] = user_message.received.inc
+
+core = 7.x
+version = "7.x-1.x-dev"

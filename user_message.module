@@ -1,0 +1,1625 @@
+<?php
+
+/**
+ * @file
+ * user_message module file.
+ */
+
+define('USER_MESSAGE_ACCESS_DENY', 0);
+define('USER_MESSAGE_ACCESS_IGNORE', 1);
+define('USER_MESSAGE_ACCESS_ALLOW', 2);
+
+module_load_include('inc', 'user_message', 'user_message.received');
+
+/**
+ * Implements hook_permission().
+ */
+function user_message_permission() {
+  return array(
+    'read messages' => array(
+      'title' => 'Benutzermitteilungen lesen',
+      'description' => 'Benutzer darf ihn betreffende Mitteilungen lesen.',
+    ),
+    'read and answer messages' => array(
+      'title' => 'Benutzermitteilungen lesen und beantworten',
+      'description' => 'Benutzer darf ihn betreffende Mitteilungen lesen und diese beantworten.',
+    ),
+    'manage user messages' => array(
+      'title' => 'Benutzermitteilungen verwalten',
+      'description' => 'Erlaubt das Einsehen und Verwalten aller Benutzermitteilungen.',
+      'restrict access' => TRUE,
+    ),
+    'configure user messages' => array(
+      'title' => 'Benutzermitteilungen konfigurieren',
+      'description' => 'Erlaubt die Veränderung der Datenstruktur von Benutzermitteilungen.',
+      'restrict access' => TRUE,
+    ),
+  );
+}
+
+/**
+ * Implements hook_menu().
+ */
+function user_message_menu() {
+  $items = array();
+  
+  $items['user-message'] = array(
+    'title' => 'Mitteilungen',
+    'type' => MENU_CALLBACK,
+    'page callback' => 'user_message_inbox_page',
+    'access arguments' => array('read messages'),
+    'file' => 'user_message.pages.inc',
+  );
+  $items['user-message/inbox'] = array(
+    'title' => 'Empfangen',
+    'description' => 'Empfangene Mitteilungen lesen',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'weight' => -10,
+  );
+  $items['user-message/outbox'] = array(
+    'title' => 'Gesendet',
+    'description' => 'Gesendete Mitteilungen lesen',
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 10,
+    'page callback' => 'user_message_outbox_page',
+    'access arguments' => array('read and answer messages'),
+    'file' => 'user_message.pages.inc',
+  );
+  $items['user-message/draft'] = array(
+    'title' => 'Entwürfe',
+    'description' => 'Entwürfe einsehen',
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 20,
+    'page callback' => 'user_message_draft_page',
+    'access arguments' => array('read and answer messages'),
+    'file' => 'user_message.pages.inc',
+  );
+  $items['user-message/archive'] = array(
+    'title' => 'Archiv',
+    'description' => 'Archiv einsehen',
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 30,
+    'page callback' => 'user_message_archive_inbox_page',
+    'access arguments' => array('read and answer messages'),
+    'file' => 'user_message.pages.inc',
+  );
+  $items['user-message/archive/inbox'] = array(
+    'title' => 'Inbox',
+    'description' => 'Archiv Inbox einsehen',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'weight' => 10,
+  );
+  $items['user-message/archive/outbox'] = array(
+    'title' => 'Outbox',
+    'description' => 'Archiv Outbox einsehen',
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 20,
+    'page callback' => 'user_message_archive_outbox_page',
+    'access arguments' => array('read and answer messages'),
+    'file' => 'user_message.pages.inc',
+  );
+  $items['user-message/new'] = array(
+    'title' => 'Verfassen',
+    'description' => 'Neue Mitteilung verfassen',
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 40,
+    'page callback' => 'user_message_create_page',
+    'page arguments' => array(2),
+    'access arguments' => array('read and answer messages'),
+    'file' => 'user_message.pages.inc',
+  );
+  $items['user-message/%user_message'] = array(
+    'title' => 'Benutzermitteilung',
+    'description' => 'Benutzermitteilung lesen',
+    'page callback' => 'user_message_page',
+    'page arguments' => array(1),
+    'access callback' => 'user_message_access',
+    'access arguments' => array('view', 1),
+    'file' => 'user_message.pages.inc',
+  );
+  $items['user-message/%user_message/view'] = array(
+    'title' => 'Ansicht',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'weight' => -10,
+  );
+  $items['user-message/%user_message/transmission-finish'] = array(
+    'title' => 'Sendeprozess',
+    'type' => MENU_CALLBACK,
+    'page callback' => 'user_message_transmission_finish_page',
+    'page arguments' => array(1),
+    'access arguments' => array('manage user messages'),
+    'file' => 'user_message.pages.inc',
+  );
+  $items['user-message/%user_message/received'] = array(
+    'title' => 'Empfängerliste',
+    'type' => MENU_CALLBACK,
+    'page callback' => 'user_message_received_page',
+    'page arguments' => array(1),
+    'access arguments' => array('manage user messages'),
+    'file' => 'user_message.pages.inc',
+  );
+  $items['user-message/%user_message/answer'] = array(
+    'title' => 'Antworten',
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 10,
+    'page callback' => 'user_message_answer_page',
+    'page arguments' => array(1),
+    'access callback' => 'user_message_access',
+    'access arguments' => array('answer', 1),
+    'file' => 'user_message.pages.inc',
+  );
+  // @todo Maybe add Edit and Delete functionality & pages.
+  
+  $items['admin/user-message'] = array(
+    'title' => 'Benutzermitteilungen',
+    'description' => 'Übersicht aller im System vorhandenen Benutzermitteilungen.',
+    'type' => MENU_NORMAL_ITEM,
+    'page callback' => 'user_message_admin_overview_page',
+    'access arguments' => array('manage user messages'),
+    'file' => 'user_message.pages.inc',
+  );
+  $items['admin/config/user-message'] = array(
+    'title' => 'Benutzermitteilungen',
+    'description' => 'Konfiguriere Datenstrukturen von Benutzermitteilungen.',
+    'type' => MENU_NORMAL_ITEM,
+    'page callback' => 'user_message_config_page',
+    'access arguments' => array('configure user messages'),
+    'file' => 'user_message.pages.inc',
+  );
+  $info = entity_get_info('user_message');
+  foreach ($info['bundles'] as $type => $value) {
+    $items['admin/config/user-message/' . $type] = array(
+      'title' => $value['label'],
+      'page callback' => 'user_message_type_config_page',
+      'page arguments' => array(3),
+      'access arguments' => array('configure user messages'),
+      'file' => 'user_message.pages.inc',
+    );
+    $items['admin/config/user-message/' . $type . '/settings'] = array(
+      'title' => 'Einstellungen',
+      'type' => MENU_DEFAULT_LOCAL_TASK,
+      'weight' => -10,
+    );
+  }
+  
+  return $items;
+}
+
+/**
+ * Implements hook_entity_info().
+ */
+function user_message_entity_info() {
+  $info = array();
+  
+  $info['user_message'] = array(
+    'label' => 'Benutzermitteilung',
+    'module' => 'user_message',
+    'controller class' => 'UserMessageEntityController',
+    'entity class' => 'UserMessageEntity',
+    'base table' => 'user_message',
+    'load hook' => 'user_message_load',
+    'uri callback' => 'user_message_uri',
+    'label callback' => 'user_message_label',
+    'access callback' => 'user_message_access',
+    'fieldable' => TRUE,
+    'uuid' => TRUE,
+    'entity keys' => array(
+      'id' => 'umid',
+      'bundle' => 'type',
+      'label' => 'subject',
+      'uuid' => 'uuid',
+    ),
+    'bundles' => array(
+      'common' => array(
+        'label' => 'Allgemeine Mitteilung',
+        // Set answer_type to FALSE if you dont want
+        // users to be able to answer on user_message
+        // objects of this type.
+        'answer_type' => 'common',
+        'admin' => array(
+          'path' => 'admin/config/user-message/common',
+          'access arguments' => array('configure user messages'),
+        ),
+      ),
+    ),
+    'view modes' => array(
+      'full' => array('label' => 'Vollständig', 'custom settings' => TRUE),
+      'compact' => array('label' => 'Kompakt', 'custom settings' => TRUE),
+      'list_item' => array('label' => 'Listenelement', 'custom settings' => TRUE),
+      'email' => array('label' => 'E-Mail', 'custom settings' => TRUE),
+    ),
+  );
+  
+  return $info;
+}
+
+/**
+ * Implements hook_entity_property_info().
+ */
+function user_message_entity_property_info() {
+  $info = array();
+  
+  $info['user_message']['properties'] = array(
+    'umid' => array(
+      'label' => 'User Message Identifier',
+      'type' => 'integer',
+      'description' => 'The unique ID of the user message.',
+      'getter callback' => ' entity_property_verbatim_get',
+    ),
+    'uuid' => array(
+      'label' => 'UUID',
+      'type' => 'text',
+      'description' => 'The UUID of the user message.',
+    ),
+    'type' => array(
+      'label' => 'User Message Type',
+      'type' => 'text',
+      'required' => TRUE,
+      'description' => 'The type of the user message.',
+      'getter callback' => ' entity_property_verbatim_get',
+      'setter callback' => 'entity_property_verbatim_set',
+    ),
+    'subject' => array(
+      'label' => 'Subject',
+      'type' => 'text',
+      'description' => 'The subject of the user message.',
+      'getter callback' => ' entity_property_verbatim_get',
+      'setter callback' => 'entity_property_verbatim_set',
+    ),
+    'created_by' => array(
+      'label' => 'Created by',
+      'type' => 'user',
+      'description' => 'The user who created this message.',
+      'getter callback' => ' entity_property_verbatim_get',
+      'setter callback' => 'entity_property_verbatim_set',
+    ),
+    'created_date' => array(
+      'label' => 'Creation date',
+      'type' => 'date',
+      'description' => 'The creation date of the message.',
+      'getter callback' => ' entity_property_verbatim_get',
+      'setter callback' => 'entity_property_verbatim_set',
+    ),
+    'status' => array(
+      'label' => 'Draft status',
+      'type' => 'text',
+      'description' => 'The status of the user message (e.g. transmitted or draft).',
+      'getter callback' => ' entity_property_verbatim_get',
+      'setter callback' => 'entity_property_verbatim_set',
+    ),
+    'stamp' => array(
+      'label' => 'Last transmission',
+      'type' => 'date',
+      'description' => 'The date and time of creation or last transmission.',
+      'getter callback' => ' entity_property_verbatim_get',
+      'setter callback' => 'entity_property_verbatim_set',
+    ),
+    'mail_status' => array(
+      'label' => 'E-Mail Status',
+      'type' => 'text',
+      'description' => 'The mail status of the user message.',
+      'getter callback' => ' entity_property_verbatim_get',
+      'setter callback' => 'entity_property_verbatim_set',
+    ),
+    'reply_to' => array(
+      'label' => 'Reply on message',
+      'type' => 'user_message',
+      'description' => 'If set, this message is a reply to the specified user message id (umid).',
+      'getter callback' => ' entity_property_verbatim_get',
+      'setter callback' => 'entity_property_verbatim_set',
+    ),
+  );
+  // @todo Read Status received by $m->readStatus().
+  // @todo Proper received item reference by $m->properReceivedItem().
+  // @todo Received items list by $m->receivedItems().
+  
+  return $info;
+}
+
+/**
+ * Implements hook_block_info(). 
+ */
+function user_message_block_info() {
+  return array(
+    'user_message_links' => array(
+      'info' => 'Mitteilungen: Links',
+      'cache' => DRUPAL_NO_CACHE,
+    ),
+    'user_message_received' => array(
+      'info' => 'Mitteilungen: Neueste empfangen',
+      'cache' => DRUPAL_NO_CACHE,
+    ),
+  );
+}
+
+/**
+ * Implements hook_action_info(). 
+ */
+function user_message_action_info() {
+  return array(
+    'user_message_transmit_action' => array(
+      'type' => 'user_message',
+      'label' => t('Transmit user message'),
+      'configurable' => FALSE,
+      'behavior' => array(),
+      'triggers' => array(),
+    ),
+  );
+}
+
+/**
+ * Implements hook_forms. 
+ */
+function user_message_forms($form_id, $args) {
+  $forms = array();
+  if (strpos($form_id, 'user_message_actions_form') === 0) {
+    $forms[$form_id] = array(
+      'callback' => 'user_message_actions_form',
+    );
+  }
+  return $forms;
+}
+
+/**
+ * Implements hook_block_view(). 
+ */
+function user_message_block_view($delta = '') {
+  $block = array();
+  
+  switch ($delta) {
+    case 'user_message_links':
+        if (user_access('read messages')) {
+          $block['subject'] = 'Mitteilungen';
+          $block['content'] = array(
+            '#theme' => 'user_message_links',
+            '#mode' => 'item_list',
+          );
+        }
+        break;
+    case 'user_message_received':
+      if ($messages = user_message_received(NULL, 5)) {
+        if ($messages = user_message_accessible_objects('view', $messages)) {
+          $block['subject'] = 'Mitteilungen';
+          $block['content'] = array(
+            '#theme' => 'user_message_block',
+            '#messages' => $messages,
+          );
+        }
+      }
+      break;
+  }
+  
+  return $block;
+}
+
+/**
+ * Implements hook_entity_view(). 
+ */
+function user_message_entity_view($entity, $type, $view_mode, $langcode) {
+  switch ($type) {
+    case 'user_message':
+    if ($view_mode != 'list_item') {
+      $entity->read();
+    }
+    break;
+  }
+}
+
+/**
+ * Implements hook_mail(). 
+ */
+function user_message_mail($key, &$mail, $params) {
+  switch ($key) {
+    case 'user_message':
+      user_message_prepare_mail($mail, $params);
+      break;
+  }
+}
+
+/**
+ * Implements hook_mail_alter(). 
+ */
+function user_message_mail_alter(&$message) {
+  global $user;
+  
+  switch ($message['id']) {
+    case 'email_contact':
+      array_shift($message['body']);
+      if (arg(1) == 'user_message') {
+        // For some reason, the email module removes the email field item from the object.
+        // To prevent data loss (we want to save the object at the end),
+        // we don't let Entity API load the object from cache here.
+        // @see issue https://www.drupal.org/node/2466079.
+        if ($m = user_message_load(arg(2), TRUE)) {
+          $attached = $m->attachedData();
+          $attached['replied_by_mail'] = array(
+            'uid' => $user->uid,
+            'stamp' => REQUEST_TIME,
+          );
+          $m->attached_data = $attached;
+          $m->save();
+        }
+      }
+      break;
+  }
+}
+
+/**
+ * Implements hook_theme(). 
+ */
+function user_message_theme($existing, $type, $theme, $path) {
+  return array(
+    'user_message__full' => array(
+      'render element' => 'elements',
+      'template' => 'user_message--full',
+    ),
+    'user_message__compact' => array(
+      'render element' => 'elements',
+      'template' => 'user_message--compact',
+    ),
+    'user_message__list_item' => array(
+      'render element' => 'elements',
+      'template' => 'user_message--list_item',
+    ),
+    'user_message__email' => array(
+      'render element' => 'elements',
+      'template' => 'user_message--email',
+    ),
+    'user_message' => array(
+      'render element' => 'elements',
+      'template' => 'user_message',
+    ),
+    'user_message_recipients' => array(
+      'variables' => array(
+        'recipients' => NULL,
+      ),
+    ),
+    'user_message_links' => array(
+      'variables' => array(
+        'mode' => NULL, // Values: 'item_list' or 'implode'.
+        'glue' => NULL, // Only required on implode mode.
+      ),
+    ),
+    'user_message_block' => array(
+      'variables' => array(
+        'messages' => NULL,
+      ),
+    ),
+  );
+}
+
+/**
+ * Set proper read status when an entity reads a user message.
+ * 
+ * Other modules may add their own operations on this event
+ * by implementing hook_user_message_read().
+ * 
+ * @param $m
+ *  The user_message object.
+ * @param $entity
+ *  (Optional) The entity which is reading the user_message.
+ *  Skip this argument if you want the currently logged in user to be the reader.
+ * @param $entity_type
+ *  (Optional) The type of the reading entity.
+ *  Skip this argument when the entity is a user.
+ */
+function user_message_read($m, $entity = NULL, $entity_type = 'user') {
+  $m->read($entity, $entity_type);
+}
+
+/**
+ * Let an entity archive a user message.
+ * 
+ * @param $m
+ *  The user_message object.
+ * @param $entity
+ *  (Optional) The entity which archives the user_message.
+ *  Skip this argument if you want the currently logged in user.
+ * @param $entity_type
+ *  (Optional) The type of the entity which archives the user_message.
+ *  Skip this argument when the entity is a user.
+ *
+ * @return bool
+ *  TRUE if archiving was succesful, FALSE otherwise.
+ */
+function user_message_archive($m, $entity = NULL, $entity_type = 'user') {
+  return $m->archive($entity, $entity_type);
+}
+
+/**
+ * Un-archive a user message.
+ * 
+ * By applying this, the message will be displayed inside the regular lists.
+ * 
+ * @param $m
+ *  The user_message object.
+ * @param $entity
+ *  (Optional) The entity which archives the user_message.
+ *  Skip this argument if you want the currently logged in user.
+ * @param $entity_type
+ *  (Optional) The type of the entity which archives the user_message.
+ *  Skip this argument when the entity is a user.
+ *
+ * @return bool
+ *  TRUE if un-archiving was succesful, FALSE otherwise.
+ */
+function user_message_unarchive($m, $entity = NULL, $entity_type = 'user') {
+  return $m->unarchive($entity, $entity_type);
+}
+
+/**
+ * Check whether a certain entity has read the user_message.
+ * 
+ * @param $entity
+ * @param $entity_type
+ * 
+ * @return
+ * FALSE if entity has not read the message yet,
+ * otherwise a timestamp of first read will be returned. 
+ */
+function user_message_read_status($m, $entity = NULL, $entity_type = 'user') {
+  return $m->readStatus($entity, $entity_type);
+}
+
+/**
+ * Creates a new user_message object.
+ * 
+ * @param $values
+ *  (Optional) An associative array of values for creating the user_message.
+ * 
+ * @return
+ *  A new user_message object.
+ */
+function user_message_create($values = array()) {
+  $m = entity_create('user_message', $values);
+  
+  module_invoke_all('user_message_create', $m);
+  
+  return $m;
+}
+
+/**
+ * Creates a new user_message object as answer for a given user_message.
+ * 
+ * @param $m
+ *  The user_message object to create the answer for.
+ * 
+ * @return
+ *  The answer as a new user_message object. 
+ */
+function user_message_create_answer($m) {
+  $info = entity_get_info('user_message');
+  
+  $answer_type = $m->type;
+  if (isset($info['bundles'][$m->type]['answer_type'])) {
+    $answer_type = $info['bundles'][$m->type]['answer_type'];
+    if ($answer_type === FALSE) {
+      throw new Exception('Cannot create answer for user message no. ' . $m->umid .
+      '. It is not allowed to create answers for user message objects of type ' . $m->type . '.');
+    }
+  }
+  
+  $values = array(
+    'type' => $answer_type,
+    'subject' => 'RE: ' . $m->subject,
+    'reply_to' => $m->umid,
+  );
+  
+  $answer = entity_create('user_message', $values);
+  
+  module_invoke_all('user_message_create_answer', $m, $answer);
+  
+  return $answer;
+}
+
+/**
+ * Prepares an email for the given user_message_object. 
+ */
+function user_message_prepare_mail(&$mail, $params) {
+  $m = $params['user_message'];
+  
+  $mail['subject'] = $m->subject;
+  $entity_view = entity_view('user_message', array($m), 'email');
+  $rendered = drupal_render($entity_view);
+  $mail['body'][] = drupal_html_to_text($rendered);
+}
+
+/**
+ * Process variables for user_message templates. 
+ */
+function user_message_preprocess_entity(&$vars) {
+  if ($vars['elements']['#entity_type'] != 'user_message') {
+    return;
+  }
+
+  $view_mode = $vars['elements']['#view_mode'];
+  $vars['theme_hook_suggestions'][] = 'user_message__' . $view_mode;
+  
+  $m = $vars['elements']['#entity'];
+
+  $vars['created_by'] = user_load($m->created_by);
+  $vars['show_email'] = TRUE; // @todo Add settings variable.
+  $vars['recipients'] = theme('user_message_recipients', array('recipients' => $m->recipients()));
+  $vars['mail'] = $m->mailStatus() != 'no_mail' ? TRUE : FALSE;
+  $vars['read'] = $m->readStatus();
+
+  $vars['answer_page'] = arg(2) == 'answer' ? TRUE : FALSE;
+  $vars['view_received'] = user_access('manage user messages');
+
+  $vars['actions'] = drupal_get_form('user_message_actions_form_' . $m->umid, $m, $view_mode);
+
+  switch ($view_mode) {
+    case 'full':
+      $vars['replied_message'] = $m->repliedMessage();
+      $vars['root_message'] = $m->rootMessage();
+      $vars['replies'] = user_message_view_replies($m);
+      break;
+    case 'compact':
+      $vars['replies'] = user_message_view_replies($m);
+      break;
+    case 'list_item':
+      $vars['outbox'] = arg(1) == 'outbox' || arg(1) == 'draft' ? TRUE : FALSE;
+      $vars['inbox'] = !$vars['outbox'];
+      break;
+    case 'email':
+      $vars['url'] = url('user-message/' . $m->umid, array('absolute' => TRUE));
+  }
+
+  // Enable themes and modules to run their own preprocess(-altering)
+  // instructions for user_message entities.
+  drupal_alter('preprocess_user_message', $vars);
+}
+
+/**
+ * Get a renderable array of all replies belonging to the current user message.
+ */
+function user_message_view_replies($m) {
+  $replies = $m->replies();
+  $replies = user_message_accessible_objects('view', $replies);
+  return $replies ? entity_view('user_message', $replies, 'compact') : array();
+}
+
+/**
+ * Get all replies of a given user_message object.
+ * 
+ * @param $m
+ *  The user_message object to get the replies for.
+ * 
+ * @return
+ *  An array of all reply objects.
+ */
+function user_message_replies($m) {
+  return $m->replies();
+}
+
+/**
+ * Get the root user_message object of a given message object.
+ * 
+ * @param $m
+ *  A user_message object.
+ * 
+ * @return
+ *  A user_message object which is the root message.
+ */
+function user_message_root($m) {
+  return $m->rootMessage();
+}
+
+/**
+ * Get all recipients of a given user_message object.
+ * 
+ * Other modules which define recipient fields should implement
+ * hook_user_message_recipients() to define their recipients.
+ * 
+ * @param $m
+ *  The user_message object to get the recipients for.
+ * 
+ * @return
+ *  An associative array, whose keys are the group of the recipient list.
+ *  The keys of the group are the following:
+ *    - 'group label': A translated string of the name of the group.
+ *    - 'items': An array of recipient items which belong to the group.
+ *       The items may be keyed by a delta information.
+ *       An item itself has the following keys:
+ *      - 'label': A translated string of the item's label / name.
+ *      - 'emails': An array of email addresses.
+ *      - 'path': (Optional) If defined, a link will be generated for this item. Can be empty or not set if item is an entity.
+ *      - 'entity_id': (Optional) If the item is an entity, this is the entity id.
+ *      - 'entity_type': (Optional) If the item is an entity, this is the entity type.
+ */
+function user_message_recipients($m) {
+  return $m->recipients();
+}
+
+/**
+ * Access callback for user_message objects.
+ * 
+ * @param $op
+ *  The requested object operation.
+ *  Value may be 'create', 'view', 'update', 'delete' or 'answer'.
+ * @param $m
+ *  (Optional) The affected user_message object.
+ * @param $account
+ *  (Optional) The user object to check the access for.
+ * 
+ * @return
+ *  TRUE when user has access to perform requested operation, FALSE otherwise.
+ */
+function user_message_access($op, $m = NULL, $account = NULL, $entity_type = 'user_message') {
+  global $user;
+  if (!isset($account)) {
+    $account = user_load($user->uid);
+  }
+  
+  // Are answers allowed in general for this user message?
+  if ($op == 'answer') {
+    $info = entity_get_info('user_message');
+    if (isset($info['bundles'][$m->type]['answer_type'])) {
+      if ($info['bundles'][$m->type]['answer_type'] === FALSE) {
+        return FALSE;
+      }
+    }
+  }
+  
+  if ($account->uid == 1) {
+    // Admin may access without further conditions.
+    return TRUE;
+  }
+  
+  $access = FALSE;
+  
+  $read = user_access('read messages', $account);
+  $answer = user_access('read and answer messages', $account);
+  
+  if (!$read && !$answer) {
+    return FALSE;
+  }
+  
+  switch ($op) {
+    case 'create':
+      $access = $answer;
+      break;
+    case 'answer':
+    case 'view':
+      if ($m->created_by == $account->uid) {
+        // User who created this message may access.
+        $access = TRUE;
+      }
+      else {
+        // Users who received this message may access.
+        $received = $m->properReceivedItem($account);
+        $access = $received ? TRUE : FALSE;
+      }
+      break;
+  }
+
+  if ($access && $op == 'answer') {
+    // Answers are only allowed on transmitted user messages.
+    $access = $m->status == 'transmitted' ? $answer : FALSE;
+  }
+
+  $invokes = module_invoke_all('user_message_access', $op, $m, $account);
+  
+  if (in_array(USER_MESSAGE_ACCESS_DENY, $invokes)) {
+    $access = FALSE;
+  }
+  elseif (in_array(USER_MESSAGE_ACCESS_ALLOW, $invokes)) {
+    $access = TRUE;
+  }
+  
+  return $access;
+}
+
+/**
+ * Try to find the proper received item for the current user account. 
+ * 
+ * Other modules may define a proper received item on their own by implementing
+ * hook_user_message_proper_received_item().
+ *
+ * @param $m
+ *  The user_message object.
+ * @param $account
+ *  (Optional) The user account to get the proper received item.
+ *  If not set, the currently logged in user will be used.
+ *  
+ * @return
+ *  An object which is the proper received item for the account,
+ *  FALSE if no proper received item was found.
+ */
+function user_message_proper_received_item($m, $account = NULL) {
+  return $m->properReceivedItem($account);
+}
+
+/**
+ * Get all or a part of received items which belong to the user message.
+ * 
+ * You may track down the items to a single recipient group
+ * by using the $groupkey parameter only, or if you want to
+ * retrieve a single item use both $groupkey and $delta.
+ * 
+ * @param $groupkey
+ *  (Optional) The groupkey to track down.
+ * @param $delta
+ *  (Optional) The delta info key.
+ *  If set, $groupkey is also required.
+ * 
+ * @return
+ *  Either an array of recipient groups when using no parameter,
+ *  or an array of group items when using $groupkey only,
+ *  or a single received item object when using both $groupkey and $delta.
+ */
+function user_message_received_items($m, $groupkey = NULL, $delta = NULL) {
+  return $m->receivedItems($groupkey, $delta);
+}
+
+/**
+ * Check every user_message object in the array list whether it's
+ * accessible by the given user account.
+ * 
+ * @param $op
+ *  The operation which shall be applied to all objects in the list.
+ * @param $ms
+ *  The array list of message objects to check.
+ * @param $account
+ *  (Optional) The user object to check the access for.
+ *  Omit if you want the current user being used.
+ * 
+ * @return
+ *  A filtered array which only contains accessible message objects.
+ */
+function user_message_accessible_objects($op, array $ms, $account = NULL) {
+  global $user;
+  if (!isset($account)) {
+    $account = user_load($user->uid);
+  }
+  
+  $accessible = array();
+  foreach ($ms as $m) {
+    if (user_message_access($op, $m, $account)) {
+      $accessible[$m->umid] = $m;
+    }
+  }
+  
+  return $accessible;
+}
+
+/**
+ * Load multiple user_message objects from the database.
+ */
+function user_message_load_multiple($umids = array(), $conditions = array(), $reset = FALSE) {
+  return entity_load('user_message', $umids, $conditions, $reset);
+}
+
+/**
+ * Load a single user_message object.
+ */
+function user_message_load($umid = NULL, $reset = FALSE) {
+  $umids = isset($umid) ? array($umid) : array();
+  $conditions = array();
+  $m = user_message_load_multiple($umids, $conditions, $reset);
+  return $m ? reset($m) : FALSE;
+}
+
+/**
+ * Get the uri of the user_message object.
+ */
+function user_message_uri($m) {
+  return $m->defaultUri();
+}
+
+/**
+ * Get the entity label of the user_message object.
+ */
+function user_message_label($m) {
+  return $m->defaultLabel();
+}
+
+/**
+ * Action callback to transmit a user message to its recipients.
+ * 
+ * @param $m
+ *  An optional user_message object.
+ * @param $context
+ *  An associative array with following keys:
+ *   - umid: The umid of the user_message to transmit.
+ *           Required if $m is not given.
+ */
+function user_message_transmit_action($m = NULL, $context = array()) {
+  $batch = isset($context['batch']) ? $context['batch'] : FALSE;
+  
+  if (!isset($m)) {
+    $m = user_message_load($context['umid']);
+  }
+  
+  $m->prepareTransmission();
+  $finished = $m->performTransmission();
+  if (!$finished) {
+    $m->finishTransmission($batch);
+  }
+}
+
+/**
+ * Prepares a user_message object for transmission.
+ * 
+ * @param $m
+ *  The user_message object to transmit.
+ * 
+ * @return
+ *  TRUE if preparation was successful, FALSE otherwise.
+ */
+function user_message_prepare_transmission($m) {
+  return $m->prepareTransmission();
+}
+
+/**
+ * Transmit a user_message to its recipients. 
+ * 
+ * The user_message object needs to be prepared before transmission process.
+ * Call user_message_prepare_transmission() for that.
+ * 
+ * Check whether the transmission is completed after running this function.
+ * If not, a further call of user_message_finish_transmission() is required.
+ * It's possible to call the finish process in batch mode.
+ * 
+ * @param $m
+ *  The user_message object to transmit.
+ * 
+ * @return
+ *  TRUE if transmission is completed, FALSE otherwise.
+ */
+function user_message_perform_transmission($m) {
+  return $m->performTransmission();
+}
+
+/**
+ * Finish a user_message transmission. 
+ * 
+ * @param $m
+ *  The user_message object.
+ * @param $batch
+ *  Boolean indicating whether the finish operations
+ *  should be performed as batch operation.
+ *  Strongly recommended when sending a massive number of emails.
+ * 
+ * @return
+ *  TRUE if transmission is completed, FALSE otherwise.
+ */
+function user_message_finish_transmission($m, $batch = FALSE) {
+  return $m->finishTransmission($batch);
+}
+
+/**
+ * Get all user's transmitted (=created) messages.
+ * 
+ * @param $account
+ *  (Optional) The user object to get the transmitted messages for.
+ *  If not set, the current user will be used.
+ * 
+ * @return
+ *  An array of all message objects which are transmitted by the user. 
+ */
+function user_message_transmitted($account = NULL, $limit = NULL, $offset = 0, $archived = FALSE) {
+  global $user;
+  if (!isset($account)) {
+    $account = user_load($user->uid);
+  }
+  
+  $query = user_message_build_transmitted_query($account, $limit, $offset, $archived);
+  $umids = $query->execute()->fetchCol();
+  $messages = user_message_load_multiple($umids);
+  
+  return $messages;
+}
+
+/**
+ * Get the number of all user's transmitted messages.
+ * 
+ * @param $account
+ *  (Optional) The user object to get the transmitted messages for.
+ *  If not set, the current user will be used.
+ * 
+ * @return
+ *  The total number of the user's transmitted messages. 
+ */
+function user_message_count_transmitted($account = NULL, $archived = FALSE) {
+  global $user;
+  if (!isset($account)) {
+    $account = user_load($user->uid);
+  }
+  
+  $query = user_message_build_transmitted_query($account, NULL, 0, $archived);
+  $query = $query->countQuery();
+  $count = $query->execute()->fetchField();
+  
+  return $count;
+}
+
+/**
+ * Get the number of all user's unread (=new) transmitted messages.
+ * 
+ * @param $account
+ *  (Optional) The user object to get the transmitted messages for.
+ *  If not set, the current user will be used.
+ * 
+ * @return
+ *  The total number of the user's transmitted messages. 
+ */
+function user_message_count_transmitted_new($account = NULL, $archived = FALSE) {
+  global $user;
+  if (!isset($account)) {
+    $account = user_load($user->uid);
+  }
+  
+  $query = user_message_build_transmitted_query($account, NULL, 0, $archived);
+  $subquery = user_message_pool_items_read_subquery($account);
+  $query->notExists($subquery);
+  
+  $query = $query->countQuery();
+  $count = $query->execute()->fetchField();
+  
+  return $count;
+}
+
+/**
+ * Get all user's received messages.
+ * 
+ * @param $account
+ *  (Optional) The user object to get the received messages for.
+ *  If not set, the current user will be used.
+ * 
+ * @return
+ *  An array of all received message objects. 
+ */
+function user_message_received($account = NULL, $limit = NULL, $offset = 0, $archived = FALSE) {
+  global $user;
+  if (!isset($account)) {
+    $account = user_load($user->uid);
+  }
+  
+  $query = user_message_build_received_query($account, $limit, $offset, $archived);
+  $umids = $query->execute()->fetchCol();
+  $messages = user_message_load_multiple($umids);
+  
+  return $messages;
+}
+
+/**
+ * Get the number of all user's received messages.
+ * 
+ * @param $account
+ *  (Optional) The user object to get the received messages for.
+ *  If not set, the current user will be used.
+ * 
+ * @return
+ *  The total number of the user's received messages. 
+ */
+function user_message_count_received($account = NULL, $archived =  FALSE) {
+  global $user;
+  if (!isset($account)) {
+    $account = user_load($user->uid);
+  }
+  
+  $query = user_message_build_received_query($account, NULL, 0, $archived);
+  $count = $query->countQuery();
+  $count = $count->execute()->fetchField();
+  
+  return $count;
+}
+
+/**
+ * Get the number of all user's unread (=new) received messages.
+ * 
+ * @param $account
+ *  (Optional) The user object to get the received messages for.
+ *  If not set, the current user will be used.
+ * 
+ * @return
+ *  The total number of the user's received messages. 
+ */
+function user_message_count_received_new($account = NULL, $archived = FALSE) {
+  global $user;
+  if (!isset($account)) {
+    $account = user_load($user->uid);
+  }
+
+  $query = user_message_build_received_query($account, NULL, 0, $archived);
+  $subquery = user_message_pool_items_read_subquery($account);
+  $query->notExists($subquery);
+
+  $count = $query->countQuery();
+  $count = $count->execute()->fetchField();
+
+  return $count;
+}
+
+/**
+ * Get all user's draft messages.
+ * 
+ * @param $account
+ *  (Optional) The user object to get the draft messages for.
+ *  If not set, the current user will be used.
+ * 
+ * @return
+ *  An array of all draft message objects. 
+ */
+function user_message_draft($account = NULL, $limit = NULL, $offset = 0) {
+  global $user;
+  if (!isset($account)) {
+    $account = user_load($user->uid);
+  }
+  
+  $query = user_message_build_draft_query($account, $limit, $offset);
+  $umids = $query->execute()->fetchCol();
+  $messages = user_message_load_multiple($umids);
+  
+  return $messages;
+}
+
+/**
+ * Get the number of all user's draft messages.
+ * 
+ * @param $account
+ *  (Optional) The user object to get the draft messages for.
+ *  If not set, the current user will be used.
+ * 
+ * @return
+ *  The total number of the user's draft messages. 
+ */
+function user_message_count_draft($account = NULL) {
+  global $user;
+  if (!isset($account)) {
+    $account = user_load($user->uid);
+  }
+  
+  $query = user_message_build_draft_query($account);
+  $query = $query->countQuery();
+  $count = $query->execute()->fetchField();
+  
+  return $count;
+}
+
+/**
+ * Builds a typical user_message query.
+ * 
+ * To keep a sitewide consistence,  this builder function should
+ * always be used, e.g. for transmitted or recived message lists.
+ * See user_message_build_transmitted_query() and user_message_build_received_query().
+ */
+function user_message_build_query($limit = NULL, $offset = 0, $archived = FALSE) {
+  $query = db_select('user_message', 'user_message')->distinct();
+  $query->fields('user_message', array('umid'));
+  $query->orderBy('user_message.stamp', 'DESC');
+  if (isset($limit)) {
+    if ($offset === 0) {
+      $query = $query->extend('PagerDefault');
+      $query->limit($limit);
+    }
+    else {
+      $query->range($offset, $limit);
+    }
+  }
+
+  $query_archived = user_message_pool_items_archive_subquery();
+  if ($archived) {
+    $query->exists($query_archived);
+  }
+  else {
+    $query->notExists($query_archived);
+  }
+
+  return $query;
+}
+
+/**
+ * Builds a query to fetch a user's transmitted messages.
+ * 
+ * @param $account
+ *  (Optional) The user object to receive the messages. If not set, the current user will be used.
+ * 
+ * @return
+ *  The built query object, ready to be executed.
+ */
+function user_message_build_transmitted_query($account = NULL, $limit = NULL, $offset = 0, $archived = FALSE) {
+  global $user;
+  if (!isset($account)) {
+    $account = user_load($user->uid);
+  }
+  
+  $query = user_message_build_query($limit, $offset, $archived);
+  
+  $query->where('user_message.status = \'transmitted\'');
+  $query->where('user_message.created_by = :created_by', array(':created_by' => $account->uid));
+  
+  module_invoke_all('user_message_build_transmitted_query', $account, $query);
+  
+  return $query;
+}
+
+/**
+ * Builds a query to fetch a user's received messages.
+ * 
+ * Other modules may extend or manipulate this query by implementing
+ * hook_user_message_build_received_query().
+ * 
+ * @param $account
+ *  (Optional) The user object to receive the messages. If not set, the current user will be used.
+ * 
+ * @return
+ *  The built query object, ready to be executed.
+ */
+function user_message_build_received_query($account = NULL, $limit = NULL, $offset = 0, $archived = FALSE) {
+  global $user;
+  if (!isset($account)) {
+    $account = user_load($user->uid);
+  }
+  
+  $query = user_message_build_query($limit, $offset, $archived);
+  
+  $query->innerJoin('user_message_received', 'received', 'user_message.umid = received.umid');
+  
+  $or = db_or();
+  $or->where('received.entity_type = \'user\' AND received.entity_id = :uid', array(':uid' => $account->uid));
+  $query->condition($or);
+  
+  module_invoke_all('user_message_build_received_query', $account, $query);
+  
+  return $query;
+}
+
+/**
+ * Builds a query to fetch a user's draft messages.
+ * 
+ * @param $account
+ *  (Optional) The user object to fetch the draft messages. If not set, the current user will be used.
+ * 
+ * @return
+ *  The built query object, ready to be executed.
+ */
+function user_message_build_draft_query($account = NULL, $limit = NULL, $offset = 0) {
+  global $user;
+  if (!isset($account)) {
+    $account = user_load($user->uid);
+  }
+  
+  $query = user_message_build_query($limit, $offset);
+  
+  $query->where('user_message.status = \'draft\'');
+  $query->where('user_message.created_by = :created_by', array(':created_by' => $account->uid));
+  
+  module_invoke_all('user_message_build_draft_query', $account, $query);
+  
+  return $query;
+}
+
+/**
+ * Helper function for building a subquery to fetch all user_message items
+ * of pool 'read' which were thrown in by the given user.
+ * 
+ * @param $account
+ *  (Optional) The user object as thrower. If not set, the current user will be used.
+ */
+function user_message_pool_items_read_subquery($account = NULL) {
+  global $user;
+  if (!isset($account)) {
+    $account = user_load($user->uid);
+  }
+
+  $query = db_select('pools', 'p')
+    ->fields('p', array('itemid'))
+    ->where('p.pool = :readpool', array(':readpool' => 'read'))
+    ->where('p.throwedin_type = :throwedin_type', array(':throwedin_type' => 'user_message'))
+    ->where('p.throwedin_id = user_message.umid')
+    ->where('p.throwedby_type = :throwedby_type', array(':throwedby_type' => 'user'))
+    ->where('p.throwedby_id = :readthrowedby_id', array(':readthrowedby_id' => $account->uid));
+
+  return $query;
+}
+
+/**
+ * Helper function for building a subquery to fetch all user_message items
+ * of pool 'archive' which were thrown in by the given user.
+ * 
+ * @param $account
+ *  (Optional) The user object as thrower. If not set, the current user will be used.
+ */
+function user_message_pool_items_archive_subquery($account = NULL) {
+  global $user;
+  if (!isset($account)) {
+    $account = user_load($user->uid);
+  }
+
+  $query = db_select('pools', 'p')
+    ->fields('p', array('itemid'))
+    ->where('p.pool = :archivepool', array(':archivepool' => 'archive'))
+    ->where('p.throwedin_type = :throwedin_type', array(':throwedin_type' => 'user_message'))
+    ->where('p.throwedin_id = user_message.umid')
+    ->where('p.throwedby_type = :throwedby_type', array(':throwedby_type' => 'user'))
+    ->where('p.throwedby_id = :archivethrowedby_id', array(':archivethrowedby_id' => $account->uid));
+
+  return $query;
+}
+
+/**
+ * Add or remove the message_text field, as needed. 
+ */
+function user_message_add_message_text_field($type, $label = 'Nachricht') {
+  field_cache_clear();
+  $field = field_info_field('message_text');
+  $instance = field_info_instance('user_message', 'message_text', $type);
+  if (empty($field)) {
+    $field = array(
+      'field_name' => 'message_text',
+      'type' => 'text_long',
+      'entity_types' => array('user_message'),
+    );
+    $field = field_create_field($field);
+  }
+  if (empty($instance)) {
+    $instance = array(
+      'field_name' => 'message_text',
+      'entity_type' => 'user_message',
+      'bundle' => $type,
+      'label' => $label,
+      'required' => TRUE,
+      'default_value' => array(
+        0 => array(
+          'value' => '',
+          'format' => 'plain_text',
+        ),
+      ),
+      'settings' => array(
+        'text_processing' => 1,
+      ),
+      'widget' => array(
+        'type' => 'text_textarea',
+        'weight' => 200,
+      ),
+      'display' => array(
+        'default' => array(
+          'label' => 'hidden',
+          'type' => 'text_default',
+          'weight' => 200,
+        ),
+       'full' => array(
+          'label' => 'hidden',
+          'type' => 'text_default',
+          'weight' => 200,
+        ),
+        'compact' => array(
+          'label' => 'hidden',
+          'type' => 'text_default',
+          'weight' => 200,
+        ),
+        'list_element' => array(
+          'label' => 'hidden',
+          'type' => 'hidden',
+        ),
+        'email' => array(
+          'label' => 'hidden',
+          'type' => 'text_default',
+          'weight' => 200,
+        ),
+      ),
+    );
+    $instance = field_create_instance($instance);
+  }
+  return $instance;
+}
+
+/**
+ * Get a list of all available user_message status values. 
+ */
+function user_message_status_available() {
+  return array(
+    'draft' => 'Entwurf',
+    'transmission' => 'Übertragung',
+    'transmitted' => 'Gesendet',
+  );
+}
+
+/**
+ * Get a list of all available mail_status values. 
+ */
+function user_message_mail_status_available() {
+  return array(
+    'no_mail' => 'Kein E-Mail-Versand',
+    'send_mail' => 'E-Mail-Versand beauftragt',
+    'mail_sent' => 'E-Mail-Versand durchgeführt',
+  );
+}
+
+function user_message_mail_batch_operation($umid, &$context) {
+  $m = user_message_load($umid);
+  $limit = 1;
+  
+  if (empty($context['sandbox'])) {
+    $pending = $m->countPendingMails();
+    $context['sandbox']['progress'] = 0;
+    $context['sandbox']['max'] = $pending ? $pending : $limit;
+  }
+  
+  $m->finishTransmission(TRUE, $limit);
+  $context['sandbox']['progress'] += $limit;
+  
+  // Report progress.
+  if ($context['sandbox']['progress'] != $context['sandbox']['max']) {
+    $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
+  }
+}
+
+function user_message_mail_batch_finished($success, $results, $operations) {
+  if ($success) {
+    drupal_set_message('Die Mitteilung wurde per E-Mail versandt.');
+  }
+  else {
+    drupal_set_message('Beim Sendeprozess der E-Mails ist etwas schiefgelaufen.', 'error');
+  }
+}
+
+/**
+ * Theme callback for recipient lists.
+ */
+function theme_user_message_recipients(&$variables) {
+  $recipients = $variables['recipients'];
+  $output = '';
+  
+  foreach ($recipients as $group) {
+    $output .= '<div>' . $group['group label'] . ': ';
+    $items = array();
+    foreach ($group['items'] as $item) {
+      $items[] = $item['label'];
+    }
+    $output .= implode(', ', $items) . '</div>';
+  }
+  
+  return $output;
+}
+
+/**
+ * Theme callback for user_message links. 
+ */
+function theme_user_message_links($variables) {
+  $mode = $variables['mode'];
+  $glue = $variables['glue'];
+  $links = array();
+  
+  if (user_access('read messages')) {
+    $new = user_message_count_received_new();
+    $text = $new ? "Inbox ($new)" : 'Inbox';
+    $link = l($text, 'user-message/inbox');
+    $links[] = $new ? '<strong>' . $link . '</strong>' : $link;
+  }
+  if (user_access('read and answer messages')) {
+    $new = user_message_count_transmitted_new();
+    $text = $new ? "Outbox ($new)" : 'Outbox';
+    $links[] =  l($text, 'user-message/outbox');
+    if ($num_draft = user_message_count_draft()) {
+      $links[] = l('Entwürfe (' . $num_draft . ')', 'user-message/draft');
+    }
+    $links[] = l('Mitteilung verfassen', 'user-message/new');
+  }
+  
+  $output = '';
+  switch ($mode) {
+    case 'item_list':
+      $output = theme('item_list', array('items' => $links));
+      break;
+    case 'implode':
+      if (isset($glue)) {
+        $output = implode($glue, $links);
+      }
+      break;
+    default:
+      $output = implode(', ', $links);
+  }
+  
+  return $output;
+}
+
+/**
+ * Creates the block content for user messages. 
+ */
+function theme_user_message_block($variables) {
+  $ms = $variables['messages'];
+  
+  $rows = array();
+  foreach ($ms as $m) {
+    $rows[$m->umid][0] = 'Von ' . format_username(user_load($m->created_by)) . ' am ' . format_date($m->stamp) . '<br />';
+    $rows[$m->umid][0] .= l($m->subject, 'user-message/' . $m->umid);
+    if (!$m->readStatus()) {
+      $rows[$m->umid][0] .= ' <span class="marker">Ungelesen</span>';
+    }
+  }
+  
+  $table = array(
+    'rows' => $rows,
+  );
+  
+  $output = theme('table', $table);
+  
+  $output .= '<div class="more-link">';
+  $output .= theme_user_message_links(array('mode' => 'implode', 'glue' => ' | '));
+  $output .= '</div>';
+  
+  return $output;
+}
+
+/**
+ * Form builder for applying actions on a certain user message object.
+ * 
+ * @param UserMessageEntity $m
+ *  A user message object.
+ * @param string $view_mode
+ *  (Optional) The view mode of the user message object being displayed.
+ * 
+ * @return
+ *  A form array containing actions for the user message.
+ */
+function user_message_actions_form($form, &$form_state, $m, $view_mode = 'full') {
+  $form_state['build_info']['form_id'] = $form_state['build_info']['form_id'];
+
+  if ($m->isArchived()) {
+    $form['actions']['unarchive'] = array(
+      '#type' => 'submit',
+      '#name' => 'unarchive',
+      '#value' => 'Archivierung aufheben',
+      '#weight' => 10,
+      '#submit' => array('user_message_actions_form_submit'),
+    );
+
+    $form['actions']['unarchive']['#ajax'] = array(
+      'callback' => 'user_message_actions_form_ajax',
+      'wrapper' => 'user-message-actions-form-' . $m->umid,
+      'method' => 'replace',
+      'effect' => 'fade',
+    );
+  }
+  elseif ($m->status == 'transmitted') {
+    $form['actions']['archive'] = array(
+      '#type' => 'submit',
+      '#name' => 'archive',
+      '#value' => 'archivieren',
+      '#weight' => 10,
+      '#submit' => array('user_message_actions_form_submit'),
+    );
+
+    $form['actions']['archive']['#ajax'] = array(
+      'callback' => 'user_message_actions_form_ajax',
+      'wrapper' => 'user-message-actions-form-' . $m->umid,
+      'method' => 'replace',
+      'effect' => 'fade',
+    );
+  }
+
+  return $form;
+}
+
+/**
+ * Submit callback for the user message actions form. 
+ */
+function user_message_actions_form_submit($form, &$form_state) {
+  $m = $form_state['build_info']['args'][0];
+  $action = $form_state['clicked_button']['#name'];
+  switch ($action) {
+    case 'archive':
+      if (user_message_archive($m)) {
+        drupal_set_message('Archiviert!');
+      }
+      break;
+    case 'unarchive':
+      if (user_message_unarchive($m)) {
+        drupal_set_message('Diese Mitteilung erscheint wieder in den regulären Postfächern.');
+      }
+      break;
+  }
+}
+
+/**
+ * AJAX callback for the user message actions form. 
+ */
+function user_message_actions_form_ajax($form, &$form_state) {
+  if ($form_state['executed']) {
+    $form['actions']['#access'] = FALSE;
+  }
+  return $form;
+}

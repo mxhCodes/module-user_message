@@ -1,0 +1,30 @@
+<?php
+
+/**
+ * @file
+ * Install, update and uninstall functions for the recipient_user module.
+ */
+
+/**
+ * Implements hook_install().
+ */
+function recipient_user_install() {
+  module_load_include('module', 'recipient_user', 'recipient_user');
+  $info = entity_get_info('user_message');
+  if (isset($info['bundles']['common'])) {
+    recipient_user_add_field('common');
+  }
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function recipient_user_uninstall() {
+  $info = entity_get_info('user_message');
+  foreach ($info['bundles'] as $type => $value) {
+    $instance = field_info_instance('user_message', 'recipient_user', $type);
+    if (!empty($instance)) {
+      field_delete_instance($instance);
+    }
+  }
+}

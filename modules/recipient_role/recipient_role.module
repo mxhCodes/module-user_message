@@ -1,0 +1,182 @@
+<?php
+
+/**
+ * @file
+ * recipient_role module file.
+ */
+
+/**
+ * Implements hook_user_message_build_received_query().
+ * 
+ * Get received messages by the recipient_role field.
+ */ 
+function recipient_role_user_message_build_received_query($account, $query) {
+  $conditions = $query->conditions();
+  unset($conditions['#conjunction']);
+  $condition = NULL;
+  foreach ($conditions as $item) {
+    if ($item['field'] instanceof DatabaseCondition) {
+      $condition = $item['field'];
+    }
+  }
+  if (!isset($condition)) {
+    $condition = db_or();
+    $query->condition($condition);
+  }
+  $role_condition = array('received.groupkey = \'recipient_role\' AND received.delta = \'_everybody\'');
+  foreach ($account->roles as $rid => $name) {
+    $role_condition[] = 'received.groupkey = \'recipient_role\' AND received.delta = \'' . $rid . '\'';
+  }
+  $condition->where(implode(' OR ', $role_condition));
+}
+
+/**
+ * Implements hook_user_message_recipients().
+ */
+function recipient_role_user_message_recipients($m) {
+  $items = field_get_items('user_message', $m, 'recipient_role');
+  if (!$items) {
+    // No recipient_role field created for this type,
+    // or no role has been added as recipient.
+    return;
+  }
+  $group = array(
+    'recipient_role' => array(
+      'group label' => 'Alle Benutzer mit Rolle',
+      'items' => array(),
+    ),
+  );
+  $roles = recipient_role_available();
+  foreach ($items as $item) {
+    $delta = $item['value'];
+    $group['recipient_role']['items'][$delta] = array(
+      'label' => $roles[$item['value']],
+      'emails' => recipient_role_mails($delta),
+    );
+  }
+  return $group;
+}
+
+/**
+ * Implements hook_user_message_proper_received_item() .
+ */
+function recipient_role_user_message_proper_received_item($m, $account, $item) {
+  if ($item) {
+    // Already got one, so dont care about it.
+    return $item;
+  }
+  
+  $query = db_select('user_message_received', 'received');
+  $query->fields('received');
+  $query->where('received.groupkey = :group', array(':group' => 'recipient_role'));
+  $query->where('received.umid = :umid', array(':umid' => $m->umid));
+  $rows = $query->execute()->fetchAll();
+  
+  $roles = $account->roles;
+  if ($rows) {
+    foreach ($rows as $row) {
+      if ($row->delta == '_everybody') {
+        // User reads this message because recipients are set to everybody.
+        $item = $row;
+        break;
+      }
+      elseif (isset($roles[$row->delta])) {
+        // User reads this message because he has a matching recipient role.
+        $item = $row;
+        break;
+      }
+    }
+  }
+  
+  return $item;
+}
+
+/**
+ * Allowed values callback for the recipient_role field. 
+ */
+function recipient_role_allowed($field, $instance, $entity_type, $entity, $cacheable) {
+  $allowed = recipient_role_available();
+  return $allowed;
+}
+
+/**
+ * Get a list of all available values for the recipient_role field. 
+ */
+function recipient_role_available() {
+  $available = array('_everybody' => 'Beliebig (Jeder Benutzer erhält diese Nachricht)');
+  $available += user_roles();
+  return $available;
+}
+
+/**
+ * Get all recipient email addresses for a given role.
+ * 
+ * @todo This could be a memory killer, further testing required.
+ * 
+ * @param $rid
+ *  The role id.
+ * 
+ * @return
+ *  An array of all found mail addresses.
+ */
+function recipient_role_mails($rid) {
+  $query = db_select('users', 'users');
+  $query->fields('users', array('mail'));
+  $query->where('users.mail IS NOT NULL AND users.mail <> \'\'');
+  if ($rid != '_everybody') {
+    $query->innerJoin('users_roles', 'map', 'users.uid = map.uid');
+    $query->where('map.rid = :rid', array(':rid' => $rid));
+  }
+  $mails = $query->execute()->fetchCol();
+  
+  return $mails;
+}
+
+/**
+ * Add the recipient_role field, as needed.
+ */
+function recipient_role_add_field($type, $label = 'An alle Benutzer mit Rolle') {
+  field_cache_clear();
+  $field = field_info_field('recipient_role');
+  $instance = field_info_instance('user_message', 'recipient_role', $type);
+  if (empty($field)) {
+    $field = array(
+      'field_name' => 'recipient_role',
+      'type' => 'list_text',
+      'cardinality' => -1,
+      'entity_types' => array('user_message'),
+      'settings' => array(
+        'allowed_values' => array(),
+        'allowed_values_function' => 'recipient_role_allowed',
+      ),
+    );
+    $field = field_create_field($field);
+  }
+  if (empty($instance)) {
+    $instance = array(
+      'bundle' => $type,
+      'description' => 'Jeder Benutzer, der die gewählte Rolle besitzt, erhält diese Nachricht.',
+      'display' => array(
+        'default' => array(
+            'label' => 'hidden',
+            'type' => 'hidden',
+        ),
+        'compact' => array(
+          'label' => 'hidden',
+          'type' => 'hidden',
+        ),
+      ),
+      'entity_type' => 'user_message',
+      'field_name' => 'recipient_role',
+      'label' => $label,
+      'required' => FALSE,
+      'widget' => array(
+        'settings' => array(),
+        'type' => 'options_buttons',
+        'weight' => 10,
+      ),
+    );
+    $instance = field_create_instance($instance);
+  }
+  return $instance;
+}

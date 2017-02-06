@@ -1,0 +1,33 @@
+/**
+ * @file
+ * user_message Stylesheet document. 
+ */
+
+.user-message-replies .entity-user-message {
+  margin-left: 30px;
+}
+
+.user-message-replies .user-message-replies .user-message-replies .user-message-replies .entity-user-message {
+  margin-left: 0px;
+}
+
+.user-message-replies h3 {
+  margin-top: 0px;
+}
+
+.content .entity-user-message {
+  border-bottom: 1px solid #d6d6d6;
+  padding-bottom: 30px;
+  margin-bottom: 30px;
+}
+
+.user-message-recipients-info {
+  background-color: #f6f6f2;
+  padding: 10px;
+}
+
+.user-message-recipients-info h4 {
+  border-bottom: 1px solid #d6d6d6;
+  padding-bottom: 5px;
+  margin-top: 5px;
+}

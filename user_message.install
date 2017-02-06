@@ -1,0 +1,229 @@
+<?php
+
+/**
+ * @file
+ * Install, update and uninstall functions for the user_message module.
+ */
+
+/**
+ * Implements hook_schema().
+ */
+function user_message_schema() {
+  $schema = array();
+  
+  $schema['user_message'] = array(
+    'description' => 'The base table for user_message objects.',
+    'fields' => array(
+      'umid' => array(
+        'description' => 'The identifier of the user_message object.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'size' => 'big',
+      ),
+      'uuid' => array(
+        'type' => 'char',
+        'length' => 36,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'The Universally Unique Identifier for the user_message object.',
+      ),
+      'subject' => array(
+        'description' => 'The subject of the user_message object.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+      ),
+      'type' => array(
+        'description' => 'The type of the user_message.',
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+      ),
+      'created_by' => array(
+        'description' => 'The {users}.uid who created this user_message object.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'created_date' => array(
+        'description' => 'The timestamp of the creation of the user_message object.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'status' => array(
+        'description' => 'Whether this user_message is a draft and has not been sent yet.',
+        'type' => 'varchar',
+        'length' => 30,
+        'not null' => TRUE,
+        'default' => 'draft',
+      ),
+      'stamp' => array(
+        'description' => 'The timestamp of creation or the last transmission.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => FALSE,
+      ),
+      'mail_status' => array(
+        'description' => 'Mail status of this user_message object.',
+        'type' => 'varchar',
+        'length' => 30,
+        'not null' => TRUE,
+        'default' => 'no_mail',
+      ),
+      'reply_to' => array(
+        'description' => 'If set, this user_message is a reply to the specified user_message id.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => FALSE,
+      ),
+      'attached_data' => array(
+        'description' => 'Additional, serialized data of the user_message which doesnt have an own schema definition.',
+        'type' => 'blob',
+        'size' => 'big',
+        'not null' => FALSE,
+      ),
+    ),
+    'foreign keys' => array(
+      'user_message_created_by' => array(
+        'table' => 'users',
+        'columns' => array('created_by' => 'uid'),
+      ),
+      'user_message_reply_to' => array(
+        'table' => 'user_message',
+        'columns' => array('reply_to' => 'umid'),
+      ),
+    ),
+    'primary key' => array('umid'),
+  );
+  
+  $schema['user_message_received'] = array(
+    'description' => 'This table contains all items representing received user messages.',
+    'fields' => array(
+      'umid' => array(
+        'description' => 'The {user_message}.umid of the received user message.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'size' => 'big',
+      ),
+      'groupkey' => array(
+        'description' => 'The group key of recipients this received item belongs to.',
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+      ),
+      'delta' => array(
+        'description' => 'The delta information for the recipients group.',
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+      ),
+      'label' => array(
+        'description' => 'The label of the recipient, e.g. a username.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+      ),
+      'stamp' => array(
+        'description' => 'The timestamp of reception.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'path' => array(
+        'description' => 'An optional link path to the recipient. If the recipient is an entity, this may be null to use its entity path instead.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+      ),
+      'entity_id' => array(
+        'decription' => 'If the recipient is an entity, this is the id. Otherwise this column is null.',
+        'type' => 'int',
+        'size' => 'big',
+        'unsigned' => TRUE,
+        'not null' => FALSE,
+      ),
+      'entity_type' => array(
+        'description' => 'If the recipient is an entity, this is the entity type. Otherwise this column is null.',
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => FALSE,
+      ),
+    ),
+    'foreign keys' => array(
+      'user_message_received_umid' => array(
+        'table' => 'user_message',
+        'columns' => array('umid' => 'umid'),
+      ),
+    ),
+    'primary key' => array('umid', 'groupkey', 'delta'),
+  );
+  
+  $schema['user_message_mail'] = array(
+    'description' => 'A table of all mail addresses a user_message was sent to.',
+    'fields' => array(
+      'umid' => array(
+        'description' => 'The {user_message}.umid of the sent user message.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'size' => 'big',
+      ),
+      'groupkey' => array(
+        'description' => 'The key of the group which added this mail address first.',
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+      ),
+      'delta' => array(
+        'description' => 'The delta of the group which added this mail address first.',
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+      ),
+      'email' => array(
+        'description' => 'The email address the user message was sent to.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+      ),
+      'mail_sent' => array(
+        'description' => 'Whether the mail has been sent or not.',
+        'type' => 'int',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+    ),
+    'foreign keys' => array(
+      'user_message_mail_received' => array(
+        'table' => 'user_message_received',
+        'columns' => array(
+          'umid' => 'umid',
+          'groupkey' => 'groupkey',
+          'delta' => 'delta',
+        ),
+      ),
+    ),
+    'primary key' => array('umid', 'email'),
+  );
+  
+  return $schema;
+}
+
+/**
+ * Implements hook_install().
+ */
+function user_message_install() {
+  module_load_include('module', 'user_message', 'user_message');
+  user_message_add_message_text_field('common');
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function user_message_uninstall() {
+  field_attach_delete_bundle('user_message', 'common');
+}

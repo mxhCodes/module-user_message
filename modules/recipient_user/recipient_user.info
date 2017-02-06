@@ -1,0 +1,9 @@
+name = User Recipients
+description = Let users write messages to other user accounts.
+package = User Messages
+
+dependencies[] = user_message
+dependencies[] = entityreference
+
+core = 7.x
+version = "7.x-1.x-dev"
